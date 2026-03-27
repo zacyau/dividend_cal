@@ -141,7 +141,7 @@ def get_stock_price_history(stock_code, start_year):
             start_date=start_date,
             end_date=end_date,
             frequency="d",
-            adjustflag="2"
+            adjustflag="3"
         )
         
         if rs.error_code != '0':
