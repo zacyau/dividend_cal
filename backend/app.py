@@ -22,73 +22,101 @@ stock_list_cache = None
 stock_list_last_update = 0
 STOCK_LIST_CACHE_TTL = 300
 bs_logged_in = False
+bs_lock = threading.RLock()
 
 
 def bs_login():
     global bs_logged_in
-    if not bs_logged_in:
+    with bs_lock:
+        if not bs_logged_in:
+            bs.logout()  # Clean up any potential stale session before login
+            lg = bs.login()
+            if lg.error_code == '0':
+                bs_logged_in = True
+                print("Baostock login success")
+            else:
+                print(f"Baostock login failed: {lg.error_msg}")
+        return bs_logged_in
+
+
+def bs_relogin():
+    """Force re-login when session may have expired"""
+    global bs_logged_in
+    with bs_lock:
+        bs.logout()
+        bs_logged_in = False
         lg = bs.login()
         if lg.error_code == '0':
             bs_logged_in = True
-            print("Baostock login success")
+            print("Baostock re-login success")
         else:
-            print(f"Baostock login failed: {lg.error_msg}")
-    return bs_logged_in
+            print(f"Baostock re-login failed: {lg.error_msg}")
+        return bs_logged_in
 
 
 def bs_logout():
     global bs_logged_in
-    if bs_logged_in:
-        bs.logout()
-        bs_logged_in = False
+    with bs_lock:
+        if bs_logged_in:
+            bs.logout()
+            bs_logged_in = False
 
 
 def get_stock_list():
-    global stock_list_cache, stock_list_last_update
+    global stock_list_cache, stock_list_last_update, bs_logged_in
     current_time = time.time()
 
-    if stock_list_cache is None or (current_time - stock_list_last_update) > STOCK_LIST_CACHE_TTL:
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                print(f"Fetching stock list from baostock... (attempt {attempt + 1}/{max_retries})")
+    with bs_lock:
+        if stock_list_cache is None or (current_time - stock_list_last_update) > STOCK_LIST_CACHE_TTL:
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    print(f"Fetching stock list from baostock... (attempt {attempt + 1}/{max_retries})")
 
-                if not bs_login():
+                    if not bs_logged_in:
+                        bs.logout()
+                        lg = bs.login()
+                        if lg.error_code == '0':
+                            bs_logged_in = True
+                            print("Baostock login success")
+                        else:
+                            print(f"Baostock login failed: {lg.error_msg}")
+                    if not bs_logged_in:
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+                        continue
+
+                    dates_to_try = []
+                    for i in range(7):
+                        dates_to_try.append((datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d"))
+
+                    for date in dates_to_try:
+                        rs = bs.query_all_stock(day=date)
+                        if rs.error_code == '0':
+                            data_list = []
+                            while (rs.error_code == '0') & rs.next():
+                                data_list.append(rs.get_row_data())
+
+                            if data_list:
+                                df = pd.DataFrame(data_list, columns=rs.fields)
+                                df = df[df['code'].str.startswith(('sh.6', 'sz.0', 'sz.3'))]
+                                df['代码'] = df['code'].str.replace('sh.', '').str.replace('sz.', '')
+                                df['名称'] = df['code_name']
+
+                                stock_list_cache = df
+                                stock_list_last_update = current_time
+                                print(f"Stock list cached from {date}, {len(df)} stocks")
+                                return stock_list_cache
+
+                    print(f"No stock data available for recent dates")
                     if attempt < max_retries - 1:
                         time.sleep(2)
-                    continue
+                except Exception as e:
+                    print(f"Error fetching stock list (attempt {attempt + 1}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
 
-                dates_to_try = []
-                for i in range(7):
-                    dates_to_try.append((datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d"))
-
-                for date in dates_to_try:
-                    rs = bs.query_all_stock(day=date)
-                    if rs.error_code == '0':
-                        data_list = []
-                        while (rs.error_code == '0') & rs.next():
-                            data_list.append(rs.get_row_data())
-
-                        if data_list:
-                            df = pd.DataFrame(data_list, columns=rs.fields)
-                            df = df[df['code'].str.startswith(('sh.6', 'sz.0', 'sz.3'))]
-                            df['代码'] = df['code'].str.replace('sh.', '').str.replace('sz.', '')
-                            df['名称'] = df['code_name']
-
-                            stock_list_cache = df
-                            stock_list_last_update = current_time
-                            print(f"Stock list cached from {date}, {len(df)} stocks")
-                            return stock_list_cache
-
-                print(f"No stock data available for recent dates")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-            except Exception as e:
-                print(f"Error fetching stock list (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-
-    return stock_list_cache if stock_list_cache is not None else pd.DataFrame()
+        return stock_list_cache if stock_list_cache is not None else pd.DataFrame()
 
 
 def refresh_stock_list_periodically():
@@ -100,7 +128,8 @@ def refresh_stock_list_periodically():
 cache_thread = threading.Thread(target=refresh_stock_list_periodically, daemon=True)
 cache_thread.start()
 
-bs_login()
+with bs_lock:
+    bs_login()
 get_stock_list()
 
 
@@ -112,73 +141,128 @@ def convert_stock_code(code):
 
 
 def get_stock_dividend_history(stock_code, start_year=None):
-    try:
-        bs_code = convert_stock_code(stock_code)
+    global bs_logged_in
+    max_retries = 2
+    for attempt in range(max_retries):
+        with bs_lock:
+            try:
+                bs_code = convert_stock_code(stock_code)
 
-        if not bs_login():
-            return None
+                if not bs_logged_in:
+                    bs.logout()
+                    lg = bs.login()
+                    if lg.error_code == '0':
+                        bs_logged_in = True
+                    else:
+                        print(f"Baostock login failed: {lg.error_msg}")
+                if not bs_logged_in:
+                    if attempt < max_retries - 1:
+                        print(f"Dividend: login failed, re-login retry ({attempt + 1}/{max_retries})")
+                        continue
+                    return None
 
-        current_year = datetime.now().year
-        all_dividends = []
+                current_year = datetime.now().year
+                all_dividends = []
+                query_error = False
 
-        for year in range(start_year or 1990, current_year + 1):
-            rs = bs.query_dividend_data(code=bs_code, year=str(year), yearType="report")
-            if rs.error_code == '0':
-                data_list = []
-                while (rs.error_code == '0') & rs.next():
-                    data_list.append(rs.get_row_data())
-                if data_list:
-                    df = pd.DataFrame(data_list, columns=rs.fields)
-                    all_dividends.append(df)
+                for year in range(start_year or 1990, current_year + 1):
+                    rs = bs.query_dividend_data(code=bs_code, year=str(year), yearType="report")
+                    if rs.error_code != '0':
+                        query_error = True
+                        print(f"Dividend query error on year {year}: {rs.error_msg}")
+                        break
+                    data_list = []
+                    while (rs.error_code == '0') & rs.next():
+                        data_list.append(rs.get_row_data())
+                    if data_list:
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        all_dividends.append(df)
 
-        if not all_dividends:
-            return pd.DataFrame()
+                if query_error:
+                    if attempt < max_retries - 1:
+                        print(f"Dividend query failed, re-login and retry ({attempt + 1}/{max_retries})")
+                        bs.logout()
+                        bs_logged_in = False
+                        continue
+                    return None
 
-        result_df = pd.concat(all_dividends, ignore_index=True)
-        return result_df
-    except Exception as e:
-        print(f"Error fetching dividend data: {e}")
-        return None
+                if not all_dividends:
+                    return pd.DataFrame()
+
+                result_df = pd.concat(all_dividends, ignore_index=True)
+                return result_df
+            except Exception as e:
+                print(f"Error fetching dividend data (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    bs.logout()
+                    bs_logged_in = False
+                    continue
+                return None
+    return None
 
 
 def get_stock_price_history(stock_code, start_year):
-    try:
-        bs_code = convert_stock_code(stock_code)
+    global bs_logged_in
+    max_retries = 2
+    for attempt in range(max_retries):
+        with bs_lock:
+            try:
+                bs_code = convert_stock_code(stock_code)
 
-        if not bs_login():
-            return None
+                if not bs_logged_in:
+                    bs.logout()
+                    lg = bs.login()
+                    if lg.error_code == '0':
+                        bs_logged_in = True
+                    else:
+                        print(f"Baostock login failed: {lg.error_msg}")
+                if not bs_logged_in:
+                    if attempt < max_retries - 1:
+                        print(f"Price: login failed, re-login retry ({attempt + 1}/{max_retries})")
+                        continue
+                    return None
 
-        start_date = f"{start_year}-01-01"
-        end_date = datetime.now().strftime("%Y-%m-%d")
+                start_date = f"{start_year}-01-01"
+                end_date = datetime.now().strftime("%Y-%m-%d")
 
-        rs = bs.query_history_k_data_plus(
-            code=bs_code,
-            fields="date,code,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="3"
-        )
+                rs = bs.query_history_k_data_plus(
+                    code=bs_code,
+                    fields="date,code,open,high,low,close,volume",
+                    start_date=start_date,
+                    end_date=end_date,
+                    frequency="d",
+                    adjustflag="3"
+                )
 
-        if rs.error_code != '0':
-            print(f"Error fetching price data: {rs.error_msg}")
-            return None
+                if rs.error_code != '0':
+                    print(f"Error fetching price data: {rs.error_msg}")
+                    if attempt < max_retries - 1:
+                        print(f"Re-login and retry ({attempt + 1}/{max_retries})")
+                        bs.logout()
+                        bs_logged_in = False
+                        continue
+                    return None
 
-        data_list = []
-        while (rs.error_code == '0') & rs.next():
-            data_list.append(rs.get_row_data())
+                data_list = []
+                while (rs.error_code == '0') & rs.next():
+                    data_list.append(rs.get_row_data())
 
-        if not data_list:
-            return None
+                if not data_list:
+                    return None
 
-        df = pd.DataFrame(data_list, columns=rs.fields)
-        df['date'] = pd.to_datetime(df['date'])
-        df['close'] = pd.to_numeric(df['close'], errors='coerce')
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                df['date'] = pd.to_datetime(df['date'])
+                df['close'] = pd.to_numeric(df['close'], errors='coerce')
 
-        return df
-    except Exception as e:
-        print(f"Error fetching price data: {e}")
-        return None
+                return df
+            except Exception as e:
+                print(f"Error fetching price data (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    bs.logout()
+                    bs_logged_in = False
+                    continue
+                return None
+    return None
 
 
 def calculate_dividend_payback(stock_code, buy_year, buy_price=None, buy_shares=1000):
@@ -190,6 +274,9 @@ def calculate_dividend_payback(stock_code, buy_year, buy_price=None, buy_shares=
     if price_df is None or price_df.empty:
         return {"error": "无法获取股价数据"}
 
+    if buy_price is not None and buy_price <= 0:
+        return {"error": "买入价格必须大于0"}
+
     if buy_price is None:
         year_data = price_df[price_df['date'].dt.year == buy_year]
         if not year_data.empty:
@@ -197,6 +284,9 @@ def calculate_dividend_payback(stock_code, buy_year, buy_price=None, buy_shares=
             buy_price = float(year_data.iloc[0]['close'])
         else:
             buy_price = float(price_df.iloc[0]['close'])
+
+    if buy_price <= 0:
+        return {"error": "获取的股价无效（≤0），请手动输入买入价格"}
 
     dividends = []
     for _, row in dividend_df.iterrows():
