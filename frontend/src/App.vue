@@ -46,7 +46,7 @@
             <input
               v-model="buyPrice"
               type="number"
-              placeholder="留空则自动获取当年价格"
+              placeholder="留空则默认买入年份首个交易日收盘价"
               class="input"
               step="0.01"
             />

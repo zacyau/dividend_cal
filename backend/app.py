@@ -186,25 +186,17 @@ def calculate_dividend_payback(stock_code, buy_year, buy_price=None, buy_shares=
     if dividend_df is None or dividend_df.empty:
         return {"error": "无法获取分红数据"}
 
-    price_df = None
+    price_df = get_stock_price_history(stock_code, buy_year)
+    if price_df is None or price_df.empty:
+        return {"error": "无法获取股价数据"}
+
     if buy_price is None:
-        price_df = get_stock_price_history(stock_code, buy_year)
-        if price_df is None or price_df.empty:
-            return {"error": "无法获取股价数据"}
-
-        year_start = pd.Timestamp(f"{buy_year}-01-01")
-        year_end = pd.Timestamp(f"{buy_year}-12-31")
-        year_data = price_df[(price_df['date'] >= year_start) & (price_df['date'] <= year_end)]
-
-        if year_data.empty:
-            year_data = price_df[price_df['date'].dt.year == buy_year]
-
+        year_data = price_df[price_df['date'].dt.year == buy_year]
         if not year_data.empty:
+            year_data = year_data.sort_values('date')
             buy_price = float(year_data.iloc[0]['close'])
         else:
             buy_price = float(price_df.iloc[0]['close'])
-    else:
-        price_df = get_stock_price_history(stock_code, buy_year)
 
     dividends = []
     for _, row in dividend_df.iterrows():
