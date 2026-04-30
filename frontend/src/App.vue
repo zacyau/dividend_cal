@@ -219,7 +219,7 @@
     </main>
 
     <footer class="footer">
-      <p>数据来源: akshare | 仅供参考，不构成投资建议</p>
+      <p>数据来源: baostock | 仅供参考，不构成投资建议</p>
     </footer>
   </div>
 </template>

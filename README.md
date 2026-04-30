@@ -21,18 +21,15 @@
 
 ### 后端
 - Python 3
-- Flask
-- 数据源支持：
-  - [akshare](https://github.com/akfamily/akshare) - 默认数据源
-  - [baostock](http://baostock.com/) - 备用数据源（更稳定）
+- FastAPI + Uvicorn
+- [baostock](http://baostock.com/) 数据源
 
 ## 项目结构
 
 ```
 dividend_cal/
 ├── backend/
-│   ├── app.py          # akshare 版本后端 (端口 5001)
-│   ├── app2.py         # baostock 版本后端 (端口 5001)
+│   ├── app.py          # 后端服务 (端口 5001)
 │   ├── requirements.txt
 │   └── venv/           # Python 虚拟环境
 ├── frontend/
@@ -64,11 +61,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 启动后端服务
-# 使用 akshare 数据源
-python app.py
-
-# 或使用 baostock 数据源（推荐）
-python app2.py
+uvicorn app:app --host 0.0.0.0 --port 5001 --reload
 ```
 
 后端服务运行在 http://127.0.0.1:5001
@@ -148,7 +141,6 @@ npm run dev
 
 - 数据来源于第三方接口，仅供参考
 - 不构成任何投资建议
-- akshare 数据源可能不稳定，建议使用 baostock 版本
 - 股价数据为前复权价格
 
 ## License
