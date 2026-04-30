@@ -1,8 +1,8 @@
 <template>
   <div class="app">
     <header class="header">
-      <h1>股票分红计算器</h1>
-      <p class="subtitle">计算股票分红回本周期</p>
+      <h1>分红回本年限计算器</h1>
+      <p class="subtitle">计算股票分红多久能覆盖投入本金</p>
     </header>
 
     <main class="main">
