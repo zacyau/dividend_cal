@@ -42,11 +42,11 @@
           </div>
 
           <div class="input-group">
-            <label>买入价格（可选）</label>
+            <label>买入价格（可选，留空取首日收盘价）</label>
             <input
               v-model="buyPrice"
               type="number"
-              placeholder="留空则默认买入年份首个交易日收盘价"
+              placeholder="例如: 5.06"
               class="input"
               step="0.01"
             />
