@@ -42,11 +42,11 @@
           </div>
 
           <div class="input-group">
-            <label>买入价格（可选，留空取首日收盘价）</label>
+            <label>买入价格（可选）</label>
             <input
               v-model="buyPrice"
               type="number"
-              placeholder="例如: 5.06"
+              placeholder="留空则取首日收盘价"
               class="input"
               step="0.01"
             />
@@ -225,6 +225,7 @@
 </template>
 
 <script setup>
+// ==================== 依赖引入 ====================
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { Line } from 'vue-chartjs'
@@ -239,6 +240,7 @@ import {
   Legend
 } from 'chart.js'
 
+// 注册 Chart.js 组件
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -249,18 +251,22 @@ ChartJS.register(
   Legend
 )
 
-const searchKeyword = ref('')
-const searchResults = ref([])
-const selectedStock = ref(null)
-const buyYear = ref('')
-const buyPrice = ref('')
-const buyShares = ref('1000')
-const loading = ref(false)
-const error = ref('')
-const result = ref(null)
+// ==================== 响应式状态 ====================
+const searchKeyword = ref('')       // 搜索关键词
+const searchResults = ref([])       // 搜索结果列表
+const selectedStock = ref(null)     // 已选中的股票
+const buyYear = ref('')             // 买入年份
+const buyPrice = ref('')            // 买入价格（可选）
+const buyShares = ref('1000')       // 买入股数，默认1000
+const loading = ref(false)          // 计算中加载状态
+const error = ref('')               // 错误信息
+const result = ref(null)            // 计算结果
 
 let searchTimeout = null
 
+// ==================== 搜索相关 ====================
+
+// 防抖搜索：输入后300ms才发请求，避免频繁调用接口
 const debouncedSearch = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
@@ -272,6 +278,7 @@ const debouncedSearch = () => {
   }, 300)
 }
 
+// 调用后端搜索接口
 const searchStock = async () => {
   try {
     const response = await axios.get(`/api/search_stock?keyword=${searchKeyword.value}`)
@@ -283,12 +290,16 @@ const searchStock = async () => {
   }
 }
 
+// 选中股票：设置已选股票并关闭搜索下拉
 const selectStock = (stock) => {
   selectedStock.value = stock
   searchKeyword.value = stock.代码
   searchResults.value = []
 }
 
+// ==================== 计算相关 ====================
+
+// 提交计算请求
 const calculate = async () => {
   if (!selectedStock.value || !buyYear.value || !buyShares.value) return
   
@@ -300,7 +311,7 @@ const calculate = async () => {
     const response = await axios.post('/api/calculate', {
       stock_code: selectedStock.value.代码,
       buy_year: parseInt(buyYear.value),
-      buy_price: buyPrice.value || null,
+      buy_price: buyPrice.value || null,   // 留空传null，后端取首日收盘价
       buy_shares: parseInt(buyShares.value)
     })
     
@@ -316,6 +327,9 @@ const calculate = async () => {
   }
 }
 
+// ==================== 图表配置 ====================
+
+// 累计现金分红对比图数据
 const chartData = computed(() => {
   if (!result.value) return { labels: [], datasets: [] }
   
@@ -342,7 +356,7 @@ const chartData = computed(() => {
         fill: true
       },
       {
-        label: '买入成本',
+        label: '买入成本',      // 水平参考线，直观对比回本时间
         data: labels.map(() => totalCost),
         borderColor: '#ef4444',
         borderDash: [5, 5],
@@ -354,6 +368,7 @@ const chartData = computed(() => {
   }
 })
 
+// 图表选项
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
@@ -391,7 +406,7 @@ const chartOptions = {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f5f7fa;
   min-height: 100vh;
 }
 
@@ -404,19 +419,18 @@ body {
 .header {
   text-align: center;
   padding: 40px 20px;
-  color: white;
+  color: #1f2937;
 }
 
 .header h1 {
   font-size: 2.5rem;
   font-weight: 700;
   margin-bottom: 10px;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
 .subtitle {
   font-size: 1.1rem;
-  opacity: 0.9;
+  opacity: 0.7;
 }
 
 .main {
@@ -711,6 +725,26 @@ body {
   color: #374151;
 }
 
+.data-table th:first-child,
+.data-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.data-table th:first-child {
+  z-index: 2;
+  background: #f9fafb;
+}
+
+.data-table td:first-child {
+  background: white;
+}
+
+.data-table tr:hover td:first-child {
+  background: #f9fafb;
+}
+
 .data-table tr:hover {
   background: #f9fafb;
 }
@@ -727,11 +761,11 @@ body {
   .header h1 {
     font-size: 1.8rem;
   }
-  
+
   .search-box {
     grid-template-columns: 1fr;
   }
-  
+
   .result-summary {
     flex-direction: column;
     gap: 15px;
