@@ -126,6 +126,8 @@ def get_stock_list():
                     if attempt < max_retries - 1:
                         time.sleep(2)
 
+            stock_list_last_update = current_time
+
         return stock_list_cache if stock_list_cache is not None else pd.DataFrame()
 
 
